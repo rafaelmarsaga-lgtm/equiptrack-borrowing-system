@@ -1,0 +1,15 @@
+# Database files (local data, never committed)
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets / editor
+.env
+.vscode/
+.idea/
