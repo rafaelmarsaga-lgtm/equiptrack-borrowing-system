@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..database import get_by_id
 from ..models import BorrowRecord, Equipment
 from ..schemas import BorrowCreate, BorrowOut
 from ..timeutil import today_ph
@@ -36,7 +37,7 @@ class NotEnoughStockError(Exception):
 
 
 def create_borrow(db: Session, data: BorrowCreate) -> BorrowOut:
-    equipment = db.get(Equipment, data.equipment_id)
+    equipment = get_by_id(db, Equipment, data.equipment_id)
     if equipment is None:
         raise EquipmentNotFoundError(data.equipment_id)
 
@@ -90,7 +91,7 @@ def list_borrows(db: Session, status: str | None = None) -> list[BorrowOut]:
 
 
 def return_borrow(db: Session, borrow_id: int) -> BorrowOut:
-    record = db.get(BorrowRecord, borrow_id)
+    record = get_by_id(db, BorrowRecord, borrow_id)
     if record is None:
         raise BorrowNotFoundError(borrow_id)
     if record.return_date is not None:
