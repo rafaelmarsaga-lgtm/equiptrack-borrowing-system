@@ -33,6 +33,50 @@ const UI = {
     this.show(id, message !== "");
   },
 
+  // Small helper: <tag class="..."> with text, built safely (no innerHTML).
+  makeElement(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  },
+
+  // Replace the inventory rows with the given equipment list.
+  renderInventory(items) {
+    const rows = items.map((item) => {
+      const row = document.createElement("tr");
+
+      // Category is shown under the name on phones and in its own column on wider screens.
+      const nameCell = this.makeElement("td", "td font-semibold", item.name);
+      nameCell.append(this.makeElement("span", "block sm:hidden text-ink-soft font-normal", item.category));
+
+      const availableCell = this.makeElement("td", "td");
+      const wrapper = this.makeElement("div", "flex items-center gap-3");
+      wrapper.append(this.makeElement("span", "num font-semibold w-6 text-right", String(item.available)));
+      if (item.available === 0) {
+        wrapper.append(this.makeElement("span", "badge badge-out", "Out of stock"));
+      } else {
+        // The gauge is decorative: the number beside it carries the information.
+        const gauge = this.makeElement("span", "gauge" + (item.available / item.total_quantity <= 0.25 ? " low" : ""));
+        gauge.setAttribute("aria-hidden", "true");
+        const fill = document.createElement("span");
+        fill.style.width = `${Math.round((item.available / item.total_quantity) * 100)}%`;
+        gauge.append(fill);
+        wrapper.append(gauge);
+      }
+      availableCell.append(wrapper);
+
+      row.append(
+        nameCell,
+        this.makeElement("td", "td hidden sm:table-cell", item.category),
+        this.makeElement("td", "td num text-right", String(item.total_quantity)),
+        availableCell,
+      );
+      return row;
+    });
+    document.getElementById("inventory-body").replaceChildren(...rows);
+  },
+
   // Switch between the Borrow and Staff tabs.
   selectTab(name) {
     for (const tab of document.querySelectorAll('[role="tab"]')) {

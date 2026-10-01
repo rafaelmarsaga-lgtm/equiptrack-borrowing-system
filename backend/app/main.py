@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import models  # noqa: F401  (registers the tables on Base)
 from .database import Base, engine
+from .routers import equipment
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="EquipTrack", lifespan=lifespan)
+app.include_router(equipment.router)
 
 
 @app.get("/api/health")
