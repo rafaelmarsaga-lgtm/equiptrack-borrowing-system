@@ -1,4 +1,4 @@
-// Page wiring: tabs (Step 2) and the equipment inventory (Step 3).
+// Page wiring: tabs, the equipment inventory, borrowing, and borrow records.
 
 const TAB_NAMES = ["borrow", "staff"];
 const SEARCH_DELAY_MS = 300;
@@ -7,10 +7,39 @@ const SEARCH_DELAY_MS = 300;
 const EQUIPMENT_FIELDS = ["equipment-name", "equipment-category", "equipment-total"];
 const BORROW_FIELDS = ["borrower-name", "id-number", "borrower-type", "equipment-select", "borrow-quantity", "due-date"];
 
-// Every inventory request gets a number; only the newest one may update the
-// page, so a slow older response can't overwrite a newer search.
-let latestInventoryRequest = 0;
-let latestRecordsRequest = 0;
+// Builds the loader for one list area ("inventory" or "records"). A load shows
+// "loading", fetches, then shows the table, the empty message or the error.
+//   getQuery()           reads the filters ONCE at the start of a load
+//   fetchItems(query)    asks the server
+//   emptyMessage(query)  text for the empty state (same query as the request)
+//   render(items)        draws the rows
+// Each loader numbers its requests and only the newest may update the page, so
+// a slow older response can't overwrite a newer search.
+function createListLoader({ area, getQuery, fetchItems, emptyMessage, render }) {
+  let latestRequest = 0;
+
+  return async function load() {
+    const query = getQuery();
+    const requestId = ++latestRequest;
+
+    UI.showState(area, "loading");
+    try {
+      const items = await fetchItems(query);
+      if (requestId !== latestRequest) return;
+      if (items.length === 0) {
+        UI.setText(`${area}-empty-text`, emptyMessage(query));
+        UI.showState(area, "empty");
+        return;
+      }
+      render(items);
+      UI.showState(area, "table");
+    } catch (error) {
+      if (requestId !== latestRequest) return;
+      UI.setText(`${area}-error-text`, error.message);
+      UI.showState(area, "error");
+    }
+  };
+}
 
 function showTab(name) {
   UI.selectTab(name);
@@ -34,34 +63,19 @@ function setupTabs() {
   }
 }
 
-async function loadInventory() {
-  const search = document.getElementById("search").value.trim();
-  const category = document.getElementById("category-filter").value;
-  const requestId = ++latestInventoryRequest;
-
-  UI.showState("inventory", "loading");
-  try {
-    const items = await Api.listEquipment(search, category);
-    if (requestId !== latestInventoryRequest) return;
-    if (items.length === 0) {
-      const filtered = search !== "" || category !== "";
-      UI.setText(
-        "inventory-empty-text",
-        filtered
-          ? "Nothing matches your search. Try a different name or choose All categories."
-          : "No equipment has been added yet. Staff can add items in the Staff tab."
-      );
-      UI.showState("inventory", "empty");
-      return;
-    }
-    UI.renderInventory(items);
-    UI.showState("inventory", "table");
-  } catch (error) {
-    if (requestId !== latestInventoryRequest) return;
-    UI.setText("inventory-error-text", error.message);
-    UI.showState("inventory", "error");
-  }
-}
+const loadInventory = createListLoader({
+  area: "inventory",
+  getQuery: () => ({
+    search: document.getElementById("search").value.trim(),
+    category: document.getElementById("category-filter").value,
+  }),
+  fetchItems: ({ search, category }) => Api.listEquipment(search, category),
+  emptyMessage: ({ search, category }) =>
+    search !== "" || category !== ""
+      ? "Nothing matches your search. Try a different name or choose All categories."
+      : "No equipment has been added yet. Staff can add items in the Staff tab.",
+  render: (items) => UI.renderInventory(items),
+});
 
 // The dropdown always lists ALL equipment, even while the table is filtered.
 async function loadEquipmentOptions() {
@@ -124,32 +138,14 @@ function selectedStatus() {
   return document.querySelector('#status-filter input[name="status"]:checked').value;
 }
 
-async function loadRecords() {
-  const status = selectedStatus();
-  const requestId = ++latestRecordsRequest;
-
-  UI.showState("records", "loading");
-  try {
-    const records = await Api.listBorrows(status);
-    if (requestId !== latestRecordsRequest) return;
-    if (records.length === 0) {
-      UI.setText(
-        "records-empty-text",
-        status
-          ? `No ${status.toLowerCase()} records.`
-          : "Records appear here after someone borrows equipment."
-      );
-      UI.showState("records", "empty");
-      return;
-    }
-    UI.renderRecords(records, returnRecord);
-    UI.showState("records", "table");
-  } catch (error) {
-    if (requestId !== latestRecordsRequest) return;
-    UI.setText("records-error-text", error.message);
-    UI.showState("records", "error");
-  }
-}
+const loadRecords = createListLoader({
+  area: "records",
+  getQuery: () => ({ status: selectedStatus() }),
+  fetchItems: ({ status }) => Api.listBorrows(status),
+  emptyMessage: ({ status }) =>
+    status ? `No ${status.toLowerCase()} records.` : "Records appear here after someone borrows equipment.",
+  render: (records) => UI.renderRecords(records, returnRecord),
+});
 
 async function returnRecord(record, button) {
   UI.setBanner("return-success", "");
