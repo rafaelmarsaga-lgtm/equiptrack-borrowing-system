@@ -77,6 +77,35 @@ const UI = {
     document.getElementById("inventory-body").replaceChildren(...rows);
   },
 
+  // "2026-10-08" -> "Oct 8, 2026". Built from parts so the browser's timezone can't shift the day.
+  formatDate(isoDate) {
+    const [year, month, day] = isoDate.split("-").map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+      year: "numeric", month: "short", day: "numeric",
+    });
+  },
+
+  // Fill the borrow form's equipment dropdown. Items with nothing left are
+  // shown but disabled so people can see why they can't pick them.
+  renderEquipmentOptions(items) {
+    const select = document.getElementById("equipment-select");
+    const previous = select.value;
+    const options = items.map((item) => {
+      const option = document.createElement("option");
+      option.value = String(item.id);
+      option.disabled = item.available === 0;
+      option.textContent = item.available === 0
+        ? `${item.name} (out of stock)`
+        : `${item.name} (${item.available} available)`;
+      return option;
+    });
+    // Keep the first "Select equipment" option, replace the rest.
+    select.replaceChildren(select.options[0], ...options);
+    // Keep the person's choice if it can still be borrowed.
+    const stillValid = options.some((o) => o.value === previous && !o.disabled);
+    select.value = stillValid ? previous : "";
+  },
+
   // Switch between the Borrow and Staff tabs.
   selectTab(name) {
     for (const tab of document.querySelectorAll('[role="tab"]')) {

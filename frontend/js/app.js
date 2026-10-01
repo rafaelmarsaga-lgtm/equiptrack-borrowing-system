@@ -52,6 +52,21 @@ async function loadInventory() {
   }
 }
 
+// The dropdown always lists ALL equipment, even while the table is filtered.
+async function loadEquipmentOptions() {
+  try {
+    UI.renderEquipmentOptions(await Api.listEquipment("", ""));
+  } catch (error) {
+    // The inventory area already shows a connection error; the form's own
+    // error banner appears if the person tries to submit anyway.
+  }
+}
+
+function refreshEquipment() {
+  loadInventory();
+  loadEquipmentOptions();
+}
+
 function setupInventoryFilters() {
   let timer;
   document.getElementById("search").addEventListener("input", () => {
@@ -82,7 +97,7 @@ function setupAddEquipmentForm() {
       const added = await Api.addEquipment(data);
       UI.setBanner("equipment-success", `Added ${added.name} (${added.total_quantity} available).`);
       form.reset();
-      loadInventory();
+      refreshEquipment();
     } catch (error) {
       UI.setBanner("equipment-error", error.message);
     } finally {
@@ -91,7 +106,46 @@ function setupAddEquipmentForm() {
   });
 }
 
+function setupBorrowForm() {
+  const form = document.getElementById("borrow-form");
+  const button = document.getElementById("borrow-submit");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    UI.setBanner("borrow-success", "");
+    UI.setBanner("borrow-error", "");
+
+    const data = {
+      borrower_name: document.getElementById("borrower-name").value,
+      id_number: document.getElementById("id-number").value,
+      borrower_type: document.getElementById("borrower-type").value,
+      equipment_id: Number(document.getElementById("equipment-select").value),
+      quantity: Number(document.getElementById("borrow-quantity").value),
+      due_date: document.getElementById("due-date").value,
+    };
+
+    button.disabled = true; // stop double submits while waiting
+    button.textContent = "Borrowing...";
+    try {
+      const record = await Api.recordBorrow(data);
+      UI.setBanner(
+        "borrow-success",
+        `Borrow #${record.id} recorded: ${record.quantity} x ${record.equipment_name}. Due ${UI.formatDate(record.due_date)}.`
+      );
+      form.reset();
+    } catch (error) {
+      UI.setBanner("borrow-error", error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Borrow equipment";
+      // Refresh in every case: after a rejected borrow the counts may be stale.
+      refreshEquipment();
+    }
+  });
+}
+
 setupTabs();
 setupInventoryFilters();
 setupAddEquipmentForm();
-loadInventory();
+setupBorrowForm();
+refreshEquipment();
