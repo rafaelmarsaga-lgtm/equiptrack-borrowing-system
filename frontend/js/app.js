@@ -3,6 +3,10 @@
 const TAB_NAMES = ["borrow", "staff"];
 const SEARCH_DELAY_MS = 300;
 
+// Field ids in page order: the first invalid one receives focus.
+const EQUIPMENT_FIELDS = ["equipment-name", "equipment-category", "equipment-total"];
+const BORROW_FIELDS = ["borrower-name", "id-number", "borrower-type", "equipment-select", "borrow-quantity", "due-date"];
+
 // Every inventory request gets a number; only the newest one may update the
 // page, so a slow older response can't overwrite a newer search.
 let latestInventoryRequest = 0;
@@ -93,11 +97,14 @@ function setupAddEquipmentForm() {
     UI.setBanner("equipment-success", "");
     UI.setBanner("equipment-error", "");
 
-    const data = {
+    const raw = {
       name: document.getElementById("equipment-name").value,
       category: document.getElementById("equipment-category").value,
-      total_quantity: Number(document.getElementById("equipment-total").value),
+      total: document.getElementById("equipment-total").value,
     };
+    // Check first so each message appears next to its field; the server checks again.
+    if (!Validation.showErrors(Validation.validateEquipment(raw), EQUIPMENT_FIELDS)) return;
+    const data = { name: raw.name, category: raw.category, total_quantity: Number(raw.total) };
 
     button.disabled = true; // stop double submits while waiting
     try {
@@ -177,13 +184,23 @@ function setupBorrowForm() {
     UI.setBanner("borrow-success", "");
     UI.setBanner("borrow-error", "");
 
+    const raw = {
+      name: document.getElementById("borrower-name").value,
+      idNumber: document.getElementById("id-number").value,
+      type: document.getElementById("borrower-type").value,
+      equipmentId: document.getElementById("equipment-select").value,
+      quantity: document.getElementById("borrow-quantity").value,
+      dueDate: document.getElementById("due-date").value,
+    };
+    // Check first so each message appears next to its field; the server checks again.
+    if (!Validation.showErrors(Validation.validateBorrow(raw), BORROW_FIELDS)) return;
     const data = {
-      borrower_name: document.getElementById("borrower-name").value,
-      id_number: document.getElementById("id-number").value,
-      borrower_type: document.getElementById("borrower-type").value,
-      equipment_id: Number(document.getElementById("equipment-select").value),
-      quantity: Number(document.getElementById("borrow-quantity").value),
-      due_date: document.getElementById("due-date").value,
+      borrower_name: raw.name,
+      id_number: raw.idNumber,
+      borrower_type: raw.type,
+      equipment_id: Number(raw.equipmentId),
+      quantity: Number(raw.quantity),
+      due_date: raw.dueDate,
     };
 
     button.disabled = true; // stop double submits while waiting
@@ -206,10 +223,21 @@ function setupBorrowForm() {
   });
 }
 
+// A field's message disappears as soon as the person starts fixing that field.
+function setupErrorClearing() {
+  for (const formId of ["equipment-form", "borrow-form"]) {
+    document.getElementById(formId).addEventListener("input", (event) => {
+      if (event.target.id) UI.setFieldError(event.target.id, "");
+    });
+  }
+}
+
 setupTabs();
 setupInventoryFilters();
 setupAddEquipmentForm();
 setupBorrowForm();
 setupStatusFilter();
+setupErrorClearing();
+Validation.setDueDateLimits();
 refreshEquipment();
 loadRecords();

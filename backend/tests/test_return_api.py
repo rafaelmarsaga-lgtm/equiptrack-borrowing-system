@@ -10,11 +10,11 @@ def add_equipment(client, name="Dell Latitude laptop", category="Laptop", total=
     ).json()
 
 
-def borrow(client, equipment_id, quantity=1):
+def borrow(client, equipment_id, quantity=1, due_date=None):
     return client.post("/api/borrows", json={
         "borrower_name": "Maria Santos", "id_number": "2023-00123", "borrower_type": "Student",
         "equipment_id": equipment_id, "quantity": quantity,
-        "due_date": (today_ph() + timedelta(days=7)).isoformat(),
+        "due_date": due_date or (today_ph() + timedelta(days=7)).isoformat(),
     })
 
 
@@ -38,7 +38,8 @@ def available_of(client, equipment_id):
 def test_return_sets_today_marks_returned_and_restores_availability(client, monkeypatch):
     monkeypatch.setattr("app.services.borrow_service.today_ph", lambda: date(2026, 10, 2))
     item = add_equipment(client, total=5)
-    record = borrow(client, item["id"], quantity=2).json()
+    # The test's "today" is faked as Oct 2, so the due date must fall inside Oct 2..Oct 16.
+    record = borrow(client, item["id"], quantity=2, due_date="2026-10-05").json()
     assert available_of(client, item["id"]) == 3
 
     response = client.post(f"/api/borrows/{record['id']}/return")

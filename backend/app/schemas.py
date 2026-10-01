@@ -1,14 +1,20 @@
 from datetime import date
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
+
+# Whitespace is trimmed BEFORE the length check, so "   " counts as empty.
+EquipmentName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=60)]
+FullName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=100)]
+IdNumber = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9-]{4,20}$")]
+Category = Literal["Laptop", "Projector", "Camera", "Audio", "Networking", "Others"]
+BorrowerType = Literal["Student", "Faculty"]
 
 
 class EquipmentCreate(BaseModel):
-    # Only types are checked here; full rules (lengths, ranges, categories)
-    # are added in Step 6.
-    name: str
-    category: str
-    total_quantity: int
+    name: EquipmentName
+    category: Category
+    total_quantity: int = Field(ge=1, le=100)
 
 
 class EquipmentOut(BaseModel):
@@ -20,13 +26,13 @@ class EquipmentOut(BaseModel):
 
 
 class BorrowCreate(BaseModel):
-    # Types only for now; field rules (lengths, ID format, due-date window)
-    # are added in Step 6.
-    borrower_name: str
-    id_number: str
-    borrower_type: str
+    # The due-date WINDOW (today to +14 days) is a business rule checked in the
+    # service, because it depends on today's date.
+    borrower_name: FullName
+    id_number: IdNumber
+    borrower_type: BorrowerType
     equipment_id: int
-    quantity: int
+    quantity: int = Field(ge=1)
     due_date: date
 
 

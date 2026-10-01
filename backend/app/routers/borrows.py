@@ -14,6 +14,8 @@ def record_borrow(data: BorrowCreate, db: Session = Depends(get_db)):
         return borrow_service.create_borrow(db, data)
     except borrow_service.EquipmentNotFoundError:
         raise HTTPException(status_code=404, detail="Equipment not found.")
+    except borrow_service.DueDateOutOfRangeError:
+        raise HTTPException(status_code=400, detail="Due date must be between today and 14 days from today.")
     except borrow_service.NotEnoughStockError as error:
         raise HTTPException(status_code=400, detail=str(error))
 

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,13 @@ from .equipment_service import available_quantity
 
 class EquipmentNotFoundError(Exception):
     """The requested equipment id does not exist."""
+
+
+MAX_BORROW_DAYS = 14
+
+
+class DueDateOutOfRangeError(Exception):
+    """Due date is before today or more than 14 days ahead."""
 
 
 class BorrowNotFoundError(Exception):
@@ -32,6 +39,11 @@ def create_borrow(db: Session, data: BorrowCreate) -> BorrowOut:
     equipment = db.get(Equipment, data.equipment_id)
     if equipment is None:
         raise EquipmentNotFoundError(data.equipment_id)
+
+    # "Today" is Philippine time, so the window is the same for everyone.
+    today = today_ph()
+    if not today <= data.due_date <= today + timedelta(days=MAX_BORROW_DAYS):
+        raise DueDateOutOfRangeError(data.due_date)
 
     # Always re-checked on the server: the page's availability may be stale
     # if someone else borrowed in the meantime.
