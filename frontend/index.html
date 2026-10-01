@@ -3,9 +3,377 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>EquipTrack</title>
+  <title>EquipTrack - Equipment Borrowing</title>
+
+  <!-- Tailwind via CDN (no build step). Colours are tokens so they are changed in one place. -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: "#1b2438",        // main text, header
+            "ink-soft": "#4a5670", // secondary text (7:1 on page background)
+            page: "#f2f5f9",       // page background
+            line: "#d5dce8",       // borders
+            accent: "#0f6b6b",     // actions, focus (white text on it is 6:1)
+            "accent-dark": "#0a4f4f",
+          },
+        },
+      },
+    };
+  </script>
+
+  <style type="text/tailwindcss">
+    @layer base {
+      body { @apply bg-page text-ink antialiased; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+      /* Visible keyboard focus everywhere, not only on inputs */
+      :focus-visible { outline: 3px solid #0f6b6b; outline-offset: 2px; }
+    }
+    @layer components {
+      .card   { @apply bg-white border border-line rounded-lg; }
+      .label  { @apply block text-sm font-semibold mb-1; }
+      .hint   { @apply text-sm text-ink-soft mt-1; }
+      .field  { @apply w-full min-h-[44px] rounded-md border border-slate-400 bg-white px-3 text-base text-ink placeholder:text-slate-500; }
+      .field-error { @apply text-sm text-red-800 mt-1 min-h-[1.25rem]; }
+      .btn    { @apply inline-flex items-center justify-center min-h-[44px] px-4 rounded-md bg-accent text-white font-semibold hover:bg-accent-dark disabled:opacity-60 disabled:cursor-not-allowed; }
+      .btn-quiet { @apply inline-flex items-center justify-center min-h-[44px] px-3 rounded-md border border-slate-400 bg-white text-ink font-semibold hover:bg-slate-100; }
+      .th     { @apply px-3 py-2 text-left text-sm font-semibold text-ink-soft bg-slate-50 border-b border-line whitespace-nowrap; }
+      .td     { @apply px-3 py-3 text-sm border-b border-line align-middle; }
+      .num    { font-variant-numeric: tabular-nums; }
+      .badge  { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-sm font-semibold whitespace-nowrap; }
+      .badge::before { content: ""; @apply inline-block w-2 h-2 rounded-full bg-current; }
+      .badge-borrowed { @apply bg-blue-100 text-blue-900; }
+      .badge-returned { @apply bg-green-100 text-green-900; }
+      .badge-overdue  { @apply bg-red-100 text-red-900; }
+      .badge-out      { @apply bg-slate-200 text-slate-800; }
+      .gauge { @apply block w-16 h-2 rounded-full bg-slate-200 overflow-hidden; }
+      .gauge > span { @apply block h-full rounded-full bg-accent; }
+      .gauge.low > span { @apply bg-amber-600; }
+      .state-box { @apply flex flex-col items-center justify-center text-center gap-2 px-4 py-10 text-ink-soft; }
+    }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+    @keyframes pulse-bar { 50% { opacity: .4; } }
+    .skeleton { animation: pulse-bar 1.4s ease-in-out infinite; }
+  </style>
 </head>
-<body>
-  <p>EquipTrack is running. The interface is built in Step 2.</p>
+
+<body class="min-h-screen">
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:m-2 focus:p-2 focus:bg-white">Skip to content</a>
+
+  <!-- Header and tabs -->
+  <header class="bg-ink text-white">
+    <div class="max-w-6xl mx-auto px-4 pt-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div class="pb-3">
+        <h1 class="text-2xl font-bold tracking-tight">EquipTrack</h1>
+        <p class="text-sm text-slate-300">Department equipment room: check, borrow, return.</p>
+      </div>
+
+      <div role="tablist" aria-label="Sections" class="flex gap-1">
+        <button role="tab" id="tab-borrow" aria-controls="panel-borrow" aria-selected="true"
+                class="tab min-h-[44px] px-5 rounded-t-md font-semibold">Borrow</button>
+        <button role="tab" id="tab-staff" aria-controls="panel-staff" aria-selected="false" tabindex="-1"
+                class="tab min-h-[44px] px-5 rounded-t-md font-semibold">Staff</button>
+      </div>
+    </div>
+  </header>
+  <style>
+    /* Active tab joins the page below it; inactive tabs sit on the header */
+    .tab { color: #cbd5e1; }
+    .tab:hover { color: #fff; }
+    .tab[aria-selected="true"] { background: #f2f5f9; color: #1b2438; }
+  </style>
+
+  <main id="main" class="max-w-6xl mx-auto px-4 py-6">
+
+    <!-- ============ BORROW TAB ============ -->
+    <section id="panel-borrow" role="tabpanel" aria-labelledby="tab-borrow" class="grid gap-6 lg:grid-cols-[1fr_22rem] items-start">
+
+      <!-- Inventory -->
+      <div class="card overflow-hidden">
+        <div class="p-4 border-b border-line">
+          <h2 class="text-lg font-bold">Equipment available</h2>
+          <form id="inventory-filters" class="mt-3 grid gap-3 sm:grid-cols-[1fr_12rem]" role="search" onsubmit="return false">
+            <div>
+              <label for="search" class="label">Search by name</label>
+              <input id="search" type="search" class="field" placeholder="e.g. laptop">
+            </div>
+            <div>
+              <label for="category-filter" class="label">Category</label>
+              <select id="category-filter" class="field">
+                <option value="">All categories</option>
+                <option>Laptop</option>
+                <option>Projector</option>
+                <option>Camera</option>
+                <option>Audio</option>
+                <option>Networking</option>
+                <option>Others</option>
+              </select>
+            </div>
+          </form>
+        </div>
+
+        <!-- Loading / empty / error states (hidden until the JS shows one) -->
+        <div id="inventory-loading" class="state-box hidden" role="status">
+          <div class="skeleton h-3 w-48 rounded bg-slate-300"></div>
+          <div class="skeleton h-3 w-64 rounded bg-slate-300"></div>
+          <div class="skeleton h-3 w-40 rounded bg-slate-300"></div>
+          <p class="text-sm">Loading equipment...</p>
+        </div>
+        <div id="inventory-empty" class="state-box hidden">
+          <p class="font-semibold text-ink">No equipment found</p>
+          <p id="inventory-empty-text" class="text-sm">Try a different name or choose All categories.</p>
+        </div>
+        <div id="inventory-error" class="state-box hidden" role="alert">
+          <p class="font-semibold text-red-800">Equipment could not be loaded</p>
+          <p id="inventory-error-text" class="text-sm">Check that the server is running, then try again.</p>
+          <button type="button" id="inventory-retry" class="btn-quiet mt-1">Try again</button>
+        </div>
+
+        <div id="inventory-table-wrap" class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <caption class="sr-only">Equipment inventory with available quantity</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="th">Equipment</th>
+                <th scope="col" class="th hidden sm:table-cell">Category</th>
+                <th scope="col" class="th text-right">Total</th>
+                <th scope="col" class="th">Available</th>
+              </tr>
+            </thead>
+            <!-- Placeholder rows: replaced by live data in Step 3 -->
+            <tbody id="inventory-body">
+              <tr data-placeholder>
+                <td class="td font-semibold">Dell Latitude laptop<span class="block sm:hidden text-ink-soft font-normal">Laptop</span></td>
+                <td class="td hidden sm:table-cell">Laptop</td>
+                <td class="td num text-right">10</td>
+                <td class="td"><div class="flex items-center gap-3"><span class="num font-semibold w-6 text-right">7</span><span class="gauge" aria-hidden="true"><span style="width:70%"></span></span></div></td>
+              </tr>
+              <tr data-placeholder>
+                <td class="td font-semibold">Epson projector<span class="block sm:hidden text-ink-soft font-normal">Projector</span></td>
+                <td class="td hidden sm:table-cell">Projector</td>
+                <td class="td num text-right">5</td>
+                <td class="td"><div class="flex items-center gap-3"><span class="num font-semibold w-6 text-right">1</span><span class="gauge low" aria-hidden="true"><span style="width:20%"></span></span></div></td>
+              </tr>
+              <tr data-placeholder>
+                <td class="td font-semibold">Canon DSLR camera<span class="block sm:hidden text-ink-soft font-normal">Camera</span></td>
+                <td class="td hidden sm:table-cell">Camera</td>
+                <td class="td num text-right">3</td>
+                <td class="td"><div class="flex items-center gap-3"><span class="num font-semibold w-6 text-right">0</span><span class="badge badge-out">Out of stock</span></div></td>
+              </tr>
+              <tr data-placeholder>
+                <td class="td font-semibold">Portable speaker<span class="block sm:hidden text-ink-soft font-normal">Audio</span></td>
+                <td class="td hidden sm:table-cell">Audio</td>
+                <td class="td num text-right">6</td>
+                <td class="td"><div class="flex items-center gap-3"><span class="num font-semibold w-6 text-right">6</span><span class="gauge" aria-hidden="true"><span style="width:100%"></span></span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Borrow form -->
+      <div class="card p-4 lg:sticky lg:top-4">
+        <h2 class="text-lg font-bold">Borrow equipment</h2>
+        <p class="hint">Fill in every field. Items can be kept for up to 14 days.</p>
+
+        <form id="borrow-form" class="mt-4 grid gap-4" novalidate>
+          <div>
+            <label for="borrower-name" class="label">Full name</label>
+            <input id="borrower-name" name="borrower_name" type="text" class="field" autocomplete="name" placeholder="e.g. Maria Santos" aria-describedby="borrower-name-error">
+            <p id="borrower-name-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div>
+            <label for="id-number" class="label">ID number</label>
+            <input id="id-number" name="id_number" type="text" class="field" placeholder="e.g. 2023-00123" aria-describedby="id-number-hint id-number-error">
+            <p id="id-number-hint" class="hint">4 to 20 letters, digits or dashes.</p>
+            <p id="id-number-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div>
+            <label for="borrower-type" class="label">Borrower type</label>
+            <select id="borrower-type" name="borrower_type" class="field" aria-describedby="borrower-type-error">
+              <option value="">Select type</option>
+              <option>Student</option>
+              <option>Faculty</option>
+            </select>
+            <p id="borrower-type-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div>
+            <label for="equipment-select" class="label">Equipment</label>
+            <select id="equipment-select" name="equipment_id" class="field" aria-describedby="equipment-select-error">
+              <option value="">Select equipment</option>
+              <!-- Options are added from the inventory in Step 3 -->
+              <option disabled>Dell Latitude laptop (sample)</option>
+            </select>
+            <p id="equipment-select-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="borrow-quantity" class="label">Quantity</label>
+              <input id="borrow-quantity" name="quantity" type="number" min="1" step="1" inputmode="numeric" class="field num" placeholder="1" aria-describedby="borrow-quantity-error">
+              <p id="borrow-quantity-error" class="field-error" aria-live="polite"></p>
+            </div>
+            <div>
+              <label for="due-date" class="label">Due date</label>
+              <input id="due-date" name="due_date" type="date" class="field" aria-describedby="due-date-error">
+              <p id="due-date-error" class="field-error" aria-live="polite"></p>
+            </div>
+          </div>
+
+          <!-- Form-level feedback: the JS fills the text and removes "hidden" -->
+          <div id="borrow-success" class="hidden rounded-md bg-green-100 text-green-900 px-3 py-2 text-sm font-semibold" role="status"></div>
+          <div id="borrow-error" class="hidden rounded-md bg-red-100 text-red-900 px-3 py-2 text-sm font-semibold" role="alert"></div>
+
+          <button type="submit" id="borrow-submit" class="btn w-full">Borrow equipment</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ============ STAFF TAB ============ -->
+    <section id="panel-staff" role="tabpanel" aria-labelledby="tab-staff" class="hidden grid gap-6">
+
+      <!-- Add equipment -->
+      <div class="card p-4">
+        <h2 class="text-lg font-bold">Add equipment</h2>
+        <form id="equipment-form" class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_9rem_auto] lg:items-start" novalidate>
+          <div>
+            <label for="equipment-name" class="label">Equipment name</label>
+            <input id="equipment-name" name="name" type="text" class="field" placeholder="e.g. HDMI cable" aria-describedby="equipment-name-error">
+            <p id="equipment-name-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div>
+            <label for="equipment-category" class="label">Category</label>
+            <select id="equipment-category" name="category" class="field" aria-describedby="equipment-category-error">
+              <option value="">Select category</option>
+              <option>Laptop</option>
+              <option>Projector</option>
+              <option>Camera</option>
+              <option>Audio</option>
+              <option>Networking</option>
+              <option>Others</option>
+            </select>
+            <p id="equipment-category-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div>
+            <label for="equipment-total" class="label">Total quantity</label>
+            <input id="equipment-total" name="total_quantity" type="number" min="1" max="100" step="1" inputmode="numeric" class="field num" placeholder="1 to 100" aria-describedby="equipment-total-error">
+            <p id="equipment-total-error" class="field-error" aria-live="polite"></p>
+          </div>
+          <div class="sm:col-span-2 lg:col-span-1 lg:pt-[1.75rem]">
+            <button type="submit" id="equipment-submit" class="btn w-full">Add equipment</button>
+          </div>
+          <div id="equipment-success" class="hidden sm:col-span-2 lg:col-span-4 rounded-md bg-green-100 text-green-900 px-3 py-2 text-sm font-semibold" role="status"></div>
+          <div id="equipment-error" class="hidden sm:col-span-2 lg:col-span-4 rounded-md bg-red-100 text-red-900 px-3 py-2 text-sm font-semibold" role="alert"></div>
+        </form>
+      </div>
+
+      <!-- Transactions -->
+      <div class="card overflow-hidden">
+        <div class="p-4 border-b border-line flex flex-wrap items-center justify-between gap-3">
+          <h2 class="text-lg font-bold">Borrow records</h2>
+          <fieldset>
+            <legend class="sr-only">Filter by status</legend>
+            <div class="flex flex-wrap gap-2" id="status-filter">
+              <label class="relative">
+                <input type="radio" name="status" value="" checked class="peer sr-only">
+                <span class="inline-flex items-center min-h-[44px] px-4 rounded-full border border-slate-400 bg-white font-semibold cursor-pointer peer-checked:bg-ink peer-checked:text-white peer-checked:border-ink peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">All</span>
+              </label>
+              <label class="relative">
+                <input type="radio" name="status" value="Borrowed" class="peer sr-only">
+                <span class="inline-flex items-center min-h-[44px] px-4 rounded-full border border-slate-400 bg-white font-semibold cursor-pointer peer-checked:bg-ink peer-checked:text-white peer-checked:border-ink peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">Borrowed</span>
+              </label>
+              <label class="relative">
+                <input type="radio" name="status" value="Returned" class="peer sr-only">
+                <span class="inline-flex items-center min-h-[44px] px-4 rounded-full border border-slate-400 bg-white font-semibold cursor-pointer peer-checked:bg-ink peer-checked:text-white peer-checked:border-ink peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">Returned</span>
+              </label>
+              <label class="relative">
+                <input type="radio" name="status" value="Overdue" class="peer sr-only">
+                <span class="inline-flex items-center min-h-[44px] px-4 rounded-full border border-slate-400 bg-white font-semibold cursor-pointer peer-checked:bg-ink peer-checked:text-white peer-checked:border-ink peer-focus-visible:outline peer-focus-visible:outline-[3px] peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent">Overdue</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div id="records-loading" class="state-box hidden" role="status">
+          <div class="skeleton h-3 w-56 rounded bg-slate-300"></div>
+          <div class="skeleton h-3 w-72 rounded bg-slate-300"></div>
+          <div class="skeleton h-3 w-44 rounded bg-slate-300"></div>
+          <p class="text-sm">Loading borrow records...</p>
+        </div>
+        <div id="records-empty" class="state-box hidden">
+          <p class="font-semibold text-ink">No borrow records</p>
+          <p id="records-empty-text" class="text-sm">Records appear here after someone borrows equipment.</p>
+        </div>
+        <div id="records-error" class="state-box hidden" role="alert">
+          <p class="font-semibold text-red-800">Borrow records could not be loaded</p>
+          <p id="records-error-text" class="text-sm">Check that the server is running, then try again.</p>
+          <button type="button" id="records-retry" class="btn-quiet mt-1">Try again</button>
+        </div>
+
+        <div id="records-table-wrap" class="overflow-x-auto">
+          <table class="w-full min-w-[60rem] border-collapse">
+            <caption class="sr-only">Borrow records with status</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="th">Borrower</th>
+                <th scope="col" class="th">ID number</th>
+                <th scope="col" class="th">Type</th>
+                <th scope="col" class="th">Equipment</th>
+                <th scope="col" class="th text-right">Qty</th>
+                <th scope="col" class="th">Borrowed on</th>
+                <th scope="col" class="th">Due</th>
+                <th scope="col" class="th">Returned on</th>
+                <th scope="col" class="th">Status</th>
+                <th scope="col" class="th"><span class="sr-only">Action</span></th>
+              </tr>
+            </thead>
+            <!-- Placeholder rows: replaced by live data in Step 5 -->
+            <tbody id="records-body">
+              <tr data-placeholder>
+                <td class="td font-semibold">Maria Santos</td>
+                <td class="td num">2023-00123</td>
+                <td class="td">Student</td>
+                <td class="td">Dell Latitude laptop</td>
+                <td class="td num text-right">2</td>
+                <td class="td num">Oct 1, 2026</td>
+                <td class="td num">Oct 8, 2026</td>
+                <td class="td">-</td>
+                <td class="td"><span class="badge badge-borrowed">Borrowed</span></td>
+                <td class="td"><button type="button" class="btn-quiet">Return</button></td>
+              </tr>
+              <tr data-placeholder>
+                <td class="td font-semibold">Dr. Jose Reyes</td>
+                <td class="td num">F-0045</td>
+                <td class="td">Faculty</td>
+                <td class="td">Epson projector</td>
+                <td class="td num text-right">1</td>
+                <td class="td num">Sep 20, 2026</td>
+                <td class="td num">Sep 27, 2026</td>
+                <td class="td">-</td>
+                <td class="td"><span class="badge badge-overdue">Overdue</span></td>
+                <td class="td"><button type="button" class="btn-quiet">Return</button></td>
+              </tr>
+              <tr data-placeholder>
+                <td class="td font-semibold">Ana Cruz</td>
+                <td class="td num">2024-00456</td>
+                <td class="td">Student</td>
+                <td class="td">Portable speaker</td>
+                <td class="td num text-right">1</td>
+                <td class="td num">Sep 25, 2026</td>
+                <td class="td num">Sep 30, 2026</td>
+                <td class="td num">Sep 29, 2026</td>
+                <td class="td"><span class="badge badge-returned">Returned</span></td>
+                <td class="td"><button type="button" class="btn-quiet" disabled aria-disabled="true">Return</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
