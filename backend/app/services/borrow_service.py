@@ -1,3 +1,6 @@
+from datetime import date
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import BorrowRecord, Equipment
@@ -8,6 +11,14 @@ from .equipment_service import available_quantity
 
 class EquipmentNotFoundError(Exception):
     """The requested equipment id does not exist."""
+
+
+class BorrowNotFoundError(Exception):
+    """The requested borrow record does not exist."""
+
+
+class AlreadyReturnedError(Exception):
+    """The record was already marked returned."""
 
 
 class NotEnoughStockError(Exception):
@@ -42,6 +53,41 @@ def create_borrow(db: Session, data: BorrowCreate) -> BorrowOut:
     return to_out(record, equipment.name)
 
 
+def compute_status(due_date: date, return_date: date | None, today: date) -> str:
+    """Status is derived, never stored, so it can't disagree with the dates.
+    Due today is still Borrowed: it only becomes Overdue the day after."""
+    if return_date is not None:
+        return "Returned"
+    if due_date < today:
+        return "Overdue"
+    return "Borrowed"
+
+
+def list_borrows(db: Session, status: str | None = None) -> list[BorrowOut]:
+    rows = db.execute(
+        select(BorrowRecord, Equipment.name)
+        .join(Equipment, BorrowRecord.equipment_id == Equipment.id)
+        .order_by(BorrowRecord.id.desc())  # newest first
+    ).all()
+    results = [to_out(record, name) for record, name in rows]
+    # Status is computed, so it is filtered here rather than in SQL. The
+    # record count is small (one department), so this stays simple.
+    if status:
+        results = [item for item in results if item.status == status]
+    return results
+
+
+def return_borrow(db: Session, borrow_id: int) -> BorrowOut:
+    record = db.get(BorrowRecord, borrow_id)
+    if record is None:
+        raise BorrowNotFoundError(borrow_id)
+    if record.return_date is not None:
+        raise AlreadyReturnedError(borrow_id)
+    record.return_date = today_ph()
+    db.commit()
+    return to_out(record, record.equipment.name)
+
+
 def to_out(record: BorrowRecord, equipment_name: str) -> BorrowOut:
     return BorrowOut(
         id=record.id,
@@ -54,4 +100,5 @@ def to_out(record: BorrowRecord, equipment_name: str) -> BorrowOut:
         borrow_date=record.borrow_date,
         due_date=record.due_date,
         return_date=record.return_date,
+        status=compute_status(record.due_date, record.return_date, today_ph()),
     )

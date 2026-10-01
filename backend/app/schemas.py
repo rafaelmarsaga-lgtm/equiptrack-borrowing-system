@@ -41,3 +41,4 @@ class BorrowOut(BaseModel):
     borrow_date: date
     due_date: date
     return_date: date | None
+    status: str  # Borrowed / Returned / Overdue, computed on every read

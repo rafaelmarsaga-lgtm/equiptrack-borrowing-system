@@ -6,18 +6,25 @@ const SEARCH_DELAY_MS = 300;
 // Every inventory request gets a number; only the newest one may update the
 // page, so a slow older response can't overwrite a newer search.
 let latestInventoryRequest = 0;
+let latestRecordsRequest = 0;
+
+function showTab(name) {
+  UI.selectTab(name);
+  // Borrows made on the Borrow tab must appear here, so reload when it opens.
+  if (name === "staff") loadRecords();
+}
 
 function setupTabs() {
   const tabs = document.querySelectorAll('[role="tab"]');
   for (const tab of tabs) {
-    tab.addEventListener("click", () => UI.selectTab(tab.id.replace("tab-", "")));
+    tab.addEventListener("click", () => showTab(tab.id.replace("tab-", "")));
     // Arrow keys move between tabs, as screen-reader users expect.
     tab.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       const step = event.key === "ArrowRight" ? 1 : -1;
       const index = TAB_NAMES.indexOf(tab.id.replace("tab-", ""));
       const next = TAB_NAMES[(index + step + TAB_NAMES.length) % TAB_NAMES.length];
-      UI.selectTab(next);
+      showTab(next);
       document.getElementById(`tab-${next}`).focus();
     });
   }
@@ -106,6 +113,61 @@ function setupAddEquipmentForm() {
   });
 }
 
+function selectedStatus() {
+  return document.querySelector('#status-filter input[name="status"]:checked').value;
+}
+
+async function loadRecords() {
+  const status = selectedStatus();
+  const requestId = ++latestRecordsRequest;
+
+  UI.showState("records", "loading");
+  try {
+    const records = await Api.listBorrows(status);
+    if (requestId !== latestRecordsRequest) return;
+    if (records.length === 0) {
+      UI.setText(
+        "records-empty-text",
+        status
+          ? `No ${status.toLowerCase()} records.`
+          : "Records appear here after someone borrows equipment."
+      );
+      UI.showState("records", "empty");
+      return;
+    }
+    UI.renderRecords(records, returnRecord);
+    UI.showState("records", "table");
+  } catch (error) {
+    if (requestId !== latestRecordsRequest) return;
+    UI.setText("records-error-text", error.message);
+    UI.showState("records", "error");
+  }
+}
+
+async function returnRecord(record, button) {
+  UI.setBanner("return-success", "");
+  UI.setBanner("return-error", "");
+  button.disabled = true; // stop double clicks while waiting
+  try {
+    const returned = await Api.returnBorrow(record.id);
+    UI.setBanner(
+      "return-success",
+      `Returned ${returned.quantity} x ${returned.equipment_name} from ${returned.borrower_name}.`
+    );
+  } catch (error) {
+    UI.setBanner("return-error", error.message);
+  } finally {
+    // Reload in every case: if it was already returned elsewhere, the list should show that.
+    loadRecords();
+    refreshEquipment(); // availability is restored by a return
+  }
+}
+
+function setupStatusFilter() {
+  document.getElementById("status-filter").addEventListener("change", loadRecords);
+  document.getElementById("records-retry").addEventListener("click", loadRecords);
+}
+
 function setupBorrowForm() {
   const form = document.getElementById("borrow-form");
   const button = document.getElementById("borrow-submit");
@@ -148,4 +210,6 @@ setupTabs();
 setupInventoryFilters();
 setupAddEquipmentForm();
 setupBorrowForm();
+setupStatusFilter();
 refreshEquipment();
+loadRecords();

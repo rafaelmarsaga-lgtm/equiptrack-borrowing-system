@@ -42,6 +42,14 @@ const Api = {
     return this.request("/api/equipment", { method: "POST", body: JSON.stringify(data) });
   },
 
+  listBorrows(status) {
+    return this.request(`/api/borrows${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+  },
+
+  returnBorrow(id) {
+    return this.request(`/api/borrows/${id}/return`, { method: "POST" });
+  },
+
   recordBorrow(data) {
     return this.request("/api/borrows", { method: "POST", body: JSON.stringify(data) });
   },

@@ -106,6 +106,42 @@ const UI = {
     select.value = stillValid ? previous : "";
   },
 
+  // Replace the borrow-record rows. onReturn(record) runs when Return is pressed.
+  renderRecords(items, onReturn) {
+    const badgeClass = { Borrowed: "badge-borrowed", Returned: "badge-returned", Overdue: "badge-overdue" };
+    const rows = items.map((record) => {
+      const row = document.createElement("tr");
+
+      const statusCell = this.makeElement("td", "td");
+      statusCell.append(this.makeElement("span", `badge ${badgeClass[record.status]}`, record.status));
+
+      // Once returned there is nothing left to do, so the cell stays empty.
+      const actionCell = this.makeElement("td", "td");
+      if (record.status !== "Returned") {
+        const button = this.makeElement("button", "btn-quiet", "Return");
+        button.type = "button";
+        button.setAttribute("aria-label", `Return ${record.quantity} x ${record.equipment_name} borrowed by ${record.borrower_name}`);
+        button.addEventListener("click", () => onReturn(record, button));
+        actionCell.append(button);
+      }
+
+      row.append(
+        this.makeElement("td", "td font-semibold", record.borrower_name),
+        this.makeElement("td", "td num", record.id_number),
+        this.makeElement("td", "td", record.borrower_type),
+        this.makeElement("td", "td", record.equipment_name),
+        this.makeElement("td", "td num text-right", String(record.quantity)),
+        this.makeElement("td", "td num", this.formatDate(record.borrow_date)),
+        this.makeElement("td", "td num", this.formatDate(record.due_date)),
+        this.makeElement("td", "td num", record.return_date ? this.formatDate(record.return_date) : "-"),
+        statusCell,
+        actionCell,
+      );
+      return row;
+    });
+    document.getElementById("records-body").replaceChildren(...rows);
+  },
+
   // Switch between the Borrow and Staff tabs.
   selectTab(name) {
     for (const tab of document.querySelectorAll('[role="tab"]')) {
